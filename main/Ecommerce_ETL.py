@@ -119,78 +119,73 @@ def aggregate_profit_data(order_df):
 
 # COMMAND ----------
 
-# Initialize spark session
-spark = SparkSession.builder.appName("Ecommerce").getOrCreate()
+# Main method
+if __name__ == '__main__':
+    # Initialize spark session
+    spark = SparkSession.builder.appName("Ecommerce").getOrCreate()
 
-# File paths (Databricks DBFS or cloud storage)
-csv_path = "/mnt/data/product.csv"
-excel_path = "/mnt/data/customer.xlsx"
-json_path = "/mnt/data/order.json"
+    # File paths (Databricks DBFS or cloud storage)
+    csv_path = "/mnt/data/product.csv"
+    excel_path = "/mnt/data/customer.xlsx"
+    json_path = "/mnt/data/order.json"
 
-# Read files
-product_df = read_csv(spark, csv_path)
-customer_df = read_excel(spark, excel_path)
-order_df = read_json(spark, json_path)
+    # Read files
+    product_df = read_csv(spark, csv_path)
+    customer_df = read_excel(spark, excel_path)
+    order_df = read_json(spark, json_path)
 
-# Create raw tables (Bronze layer)
-create_table(product_df, "raw_product", 'bronze')
-create_table(customer_df, "raw_customer", 'bronze')
-create_table(order_df, "raw_order", 'bronze')
+    # Create raw tables (Bronze layer)
+    create_table(product_df, "raw_product", 'bronze')
+    create_table(customer_df, "raw_customer", 'bronze')
+    create_table(order_df, "raw_order", 'bronze')
 
-# Data cleanup for customer and product tables (Silver layer)
-customer_enriched_df = clean_customer_data(customer_df)
-product_enriched_df = clean_product_data(product_df)
-create_table(customer_enriched_df, "enriched_customer", 'silver')
-create_table(product_enriched_df, "enriched_order", 'silver')
+    # Data cleanup for customer and product tables (Silver layer)
+    customer_enriched_df = clean_customer_data(customer_df)
+    product_enriched_df = clean_product_data(product_df)
+    create_table(customer_enriched_df, "enriched_customer", 'silver')
+    create_table(product_enriched_df, "enriched_order", 'silver')
 
-# Enrich order data (Silver layer)
-order_enriched_df = enrich_order_data(order_df, customer_enriched_df, product_enriched_df)
-create_table(order_enriched_df, "enriched_order", 'silver')
+    # Enrich order data (Silver layer)
+    order_enriched_df = enrich_order_data(order_df, customer_enriched_df, product_enriched_df)
+    create_table(order_enriched_df, "enriched_order", 'silver')
 
-# Create master table for aggregation (Gold layer)
-order_master_df = aggregate_profit_data(order_enriched_df)
-create_table(order_master_df, "master_order", 'gold')
+    # Create master table for aggregation (Gold layer)
+    order_master_df = aggregate_profit_data(order_enriched_df)
+    create_table(order_master_df, "master_order", 'gold')
 
+    # SQL queries on aggregate data
+    # Create a temporary view of the aggregated data
+    order_master_df.createOrReplaceTempView("order_master_view")
 
-# COMMAND ----------
+    # a. Profit by year
+    profit_by_year_df = spark.sql("""
+        SELECT year, SUM(profit) AS total_profit
+        FROM order_master_view
+        GROUP BY year
+        ORDER BY year
+    """).show()
 
-# MAGIC %md
-# MAGIC ## SQL queries on aggregate data
+    # b. Profit by year + category
+    profit_by_year_category_df = spark.sql("""
+        SELECT year, Category, SUM(profit) AS total_profit
+        FROM order_master_view
+        GROUP BY year, Category
+        ORDER BY year, Category
+    """).show()
 
-# COMMAND ----------
+    # c. Profit by customer
+    profit_by_customer_df = spark.sql("""
+        SELECT `Customer Name`, SUM(profit) AS total_profit
+        FROM order_master_view
+        GROUP BY `Customer Name`
+        ORDER BY `Customer Name`
+    """).show()
 
-# Create a temporary view of the aggregated data
-order_master_df.createOrReplaceTempView("order_master_view")
-
-# a. Profit by year
-profit_by_year_df = spark.sql("""
-    SELECT year, SUM(profit) AS total_profit
-    FROM order_master_view
-    GROUP BY year
-    ORDER BY year
-""").show()
-
-# b. Profit by year + category
-profit_by_year_category_df = spark.sql("""
-    SELECT year, Category, SUM(profit) AS total_profit
-    FROM order_master_view
-    GROUP BY year, Category
-    ORDER BY year, Category
-""").show()
-
-# c. Profit by customer
-profit_by_customer_df = spark.sql("""
-    SELECT `Customer Name`, SUM(profit) AS total_profit
-    FROM order_master_view
-    GROUP BY `Customer Name`
-    ORDER BY `Customer Name`
-""").show()
-
-# d. Profit by customer + year
-profit_by_year_category_df = spark.sql("""
-    SELECT `Customer Name`, year, SUM(profit) AS total_profit
-    FROM order_master_view
-    GROUP BY `Customer Name`, year
-    ORDER BY `Customer Name`, year
-""").show()
+    # d. Profit by customer + year
+    profit_by_year_category_df = spark.sql("""
+        SELECT `Customer Name`, year, SUM(profit) AS total_profit
+        FROM order_master_view
+        GROUP BY `Customer Name`, year
+        ORDER BY `Customer Name`, year
+    """).show()
 
